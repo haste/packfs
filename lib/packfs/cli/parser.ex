@@ -65,7 +65,7 @@ defmodule Packfs.Cli.Parser do
         force: flag("--force", "Allow writes into an existing output directory"),
         quiet: flag("--quiet", "Suppress the success summary")
       ],
-      options: selection_options() ++ name_options() ++ cipher_options()
+      options: selection_options() ++ name_options() ++ cipher_options() ++ job_options()
     ]
   end
 
@@ -148,10 +148,29 @@ defmodule Packfs.Cli.Parser do
     ]
   end
 
+  defp job_options do
+    [
+      jobs: [
+        value_name: "COUNT",
+        long: "--jobs",
+        help: "Extract archives concurrently (default: up to 4)",
+        parser: &parse_jobs/1,
+        required: false
+      ]
+    ]
+  end
+
   defp parse_cipher("auto"), do: {:ok, :auto}
   defp parse_cipher("raw"), do: {:ok, :raw}
   defp parse_cipher("xor"), do: {:ok, :xor}
   defp parse_cipher(value), do: {:error, "expected auto, raw, or xor; got #{inspect(value)}"}
+
+  defp parse_jobs(value) do
+    case Integer.parse(value) do
+      {jobs, ""} when jobs > 0 -> {:ok, jobs}
+      _result -> {:error, "expected a positive integer; got #{inspect(value)}"}
+    end
+  end
 
   defp parse_update(value) do
     case String.split(value, ":", parts: 3) do

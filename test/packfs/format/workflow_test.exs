@@ -4,6 +4,7 @@ defmodule Packfs.Format.WorkflowTest do
   alias Packfs.Format.Archive
   alias Packfs.Format.DataSet
   alias Packfs.Format.Finfolist
+  alias Packfs.Format.Manifest
   alias Packfs.Format.PackInfo
   alias Packfs.Format.Repacker
   alias Packfs.Format.ResolvedName
@@ -40,6 +41,51 @@ defmodule Packfs.Format.WorkflowTest do
 
     assert File.read!(Path.join(rebuilt, "finfolist.bin")) ==
              File.read!(Path.join(source, "finfolist.bin"))
+  end
+
+  @tag :tmp_dir
+  test "archives unpack concurrently without changing manifest order", %{tmp_dir: temporary} do
+    source = Path.join(temporary, "source")
+    workspace_path = Path.join(temporary, "workspace")
+    fixture = TestFixture.create_data_set(source, :xor)
+    assert {:ok, data_set} = DataSet.load(source)
+
+    [first, second] = Enum.sort_by(fixture.records, & &1.offset)
+    original_archive = File.read!(Archive.path(source, 0))
+    first_payload = binary_part(original_archive, first.offset, first.size)
+    second_payload = binary_part(original_archive, second.offset, second.size)
+
+    File.write!(Archive.path(source, 0), first_payload)
+    File.write!(Archive.path(source, 1), second_payload)
+
+    records =
+      Enum.map(data_set.pack_info.records, fn
+        %{index: index} = record when index == second.index ->
+          %{record | archive_id: 1, offset: 0}
+
+        record ->
+          record
+      end)
+
+    pack_info = %{data_set.pack_info | records: records}
+    concurrent_data_set = %{data_set | pack_info: pack_info}
+
+    assert {:ok, result} =
+             Unpacker.run(
+               concurrent_data_set,
+               workspace_path,
+               MapSet.new([0, 1]),
+               fixture.names,
+               cipher: :xor,
+               jobs: 2
+             )
+
+    assert result.files == 2
+    assert result.bytes == first.size + second.size
+
+    manifest_path = Path.join(workspace_path, "packfs-manifest.json")
+    assert {:ok, manifest} = manifest_path |> File.read!() |> Manifest.decode()
+    assert Enum.map(manifest.files, & &1.record) == [first.index, second.index]
   end
 
   @tag :tmp_dir

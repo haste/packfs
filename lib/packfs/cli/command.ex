@@ -139,7 +139,8 @@ defmodule Packfs.Cli.Command do
       cipher: parsed.options.cipher,
       verify: not parsed.flags.skip_verify,
       allow_bad_md5: parsed.flags.allow_bad_md5,
-      force: parsed.flags.force
+      force: parsed.flags.force,
+      jobs: parsed.options.jobs
     )
   end
 
