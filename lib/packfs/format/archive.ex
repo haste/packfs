@@ -79,6 +79,47 @@ defmodule Packfs.Format.Archive do
     end
   end
 
+  @spec extract_and_hash(
+          File.io_device(),
+          File.io_device(),
+          FileRecord.t(),
+          :raw | :xor,
+          term(),
+          non_neg_integer()
+        ) :: {:ok, binary(), term(), non_neg_integer()} | {:error, term()}
+  def extract_and_hash(archive, destination, %FileRecord{} = record, mode, archive_md5, position)
+      when position <= record.offset do
+    with :ok <- seek(archive, position),
+         {:ok, updated_archive_md5} <-
+           reduce_exact(archive, record.offset - position, archive_md5, &hash_data/2),
+         {:ok, {_cipher, payload_md5, final_archive_md5}} <-
+           reduce_exact(
+             archive,
+             record.size,
+             {
+               Cipher.initial_state(record.crc32, record.crc16),
+               md5(),
+               updated_archive_md5
+             },
+             fn data, state ->
+               copy_data(data, state, destination, record.crc16, mode)
+             end
+           ) do
+      {:ok, :crypto.hash_final(payload_md5), final_archive_md5, record.offset + record.size}
+    end
+  end
+
+  def extract_and_hash(
+        _archive,
+        _destination,
+        %FileRecord{} = record,
+        _mode,
+        _archive_md5,
+        position
+      ) do
+    {:error, {:overlapping_record, record.index, position, record.offset}}
+  end
+
   @spec write_plaintext(
           File.io_device(),
           File.io_device(),
@@ -136,14 +177,26 @@ defmodule Packfs.Format.Archive do
      {next_cipher, :crypto.hash_update(raw_md5, data), :crypto.hash_update(xor_md5, decoded)}}
   end
 
-  defp copy_data(data, {cipher, payload_md5}, destination, crc16, mode) do
+  defp copy_data(data, state, destination, crc16, mode) do
+    cipher = elem(state, 0)
     {output, next_cipher} = transform(data, crc16, cipher, mode)
 
     case :file.write(destination, output) do
-      :ok -> {:ok, {next_cipher, :crypto.hash_update(payload_md5, output)}}
+      :ok -> {:ok, update_copy_state(state, data, output, next_cipher)}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp update_copy_state({_cipher, payload_md5}, _data, output, next_cipher) do
+    {next_cipher, :crypto.hash_update(payload_md5, output)}
+  end
+
+  defp update_copy_state({_cipher, payload_md5, archive_md5}, data, output, next_cipher) do
+    {next_cipher, :crypto.hash_update(payload_md5, output),
+     :crypto.hash_update(archive_md5, data)}
+  end
+
+  defp hash_data(data, md5), do: {:ok, :crypto.hash_update(md5, data)}
 
   defp write_plaintext_data(
          data,

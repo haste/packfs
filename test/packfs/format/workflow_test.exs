@@ -44,6 +44,25 @@ defmodule Packfs.Format.WorkflowTest do
   end
 
   @tag :tmp_dir
+  test "unpack verifies the stored archive digest during extraction", %{tmp_dir: temporary} do
+    source = Path.join(temporary, "source")
+    workspace_path = Path.join(temporary, "workspace")
+    fixture = TestFixture.create_data_set(source, :raw)
+    assert {:ok, data_set} = DataSet.load(source)
+
+    pack_info = %{data_set.pack_info | archive_md5s: [:binary.copy(<<0>>, 16)]}
+    bad_index = %{data_set | pack_info: pack_info}
+
+    assert {:error, error} =
+             Unpacker.run(bad_index, workspace_path, MapSet.new([0]), fixture.names,
+               cipher: :raw,
+               verify_archives: true
+             )
+
+    assert Exception.message(error) =~ "archive 0: MD5 mismatch"
+  end
+
+  @tag :tmp_dir
   test "archives unpack concurrently without changing manifest order", %{tmp_dir: temporary} do
     source = Path.join(temporary, "source")
     workspace_path = Path.join(temporary, "workspace")

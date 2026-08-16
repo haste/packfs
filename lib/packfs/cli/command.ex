@@ -118,15 +118,15 @@ defmodule Packfs.Cli.Command do
   defp unpack(parsed) do
     with {:ok, data_set} <- DataSet.load(parsed.args.source),
          {:ok, selected} <- selection(data_set, parsed.options.pack),
-         :ok <- validate_unpack_source(data_set, selected, parsed.flags.skip_verify),
+         :ok <- validate_unpack_source(data_set, selected),
          {:ok, resolved} <- resolve_names(data_set, selected, parsed),
          {:ok, result} <- unpack_data_set(data_set, selected, resolved.paths, parsed) do
       {:ok, %{result | warnings: resolved.warnings ++ result.warnings}}
     end
   end
 
-  defp validate_unpack_source(data_set, selected, skip_verify) do
-    validation = Verifier.verify(data_set, selected, archives: not skip_verify, files: false)
+  defp validate_unpack_source(data_set, selected) do
+    validation = Verifier.verify(data_set, selected, archives: false, files: false)
 
     case validation.errors do
       [] -> :ok
@@ -138,6 +138,7 @@ defmodule Packfs.Cli.Command do
     Unpacker.run(data_set, parsed.args.output, selected, names,
       cipher: parsed.options.cipher,
       verify: not parsed.flags.skip_verify,
+      verify_archives: not parsed.flags.skip_verify,
       allow_bad_md5: parsed.flags.allow_bad_md5,
       force: parsed.flags.force,
       jobs: parsed.options.jobs
