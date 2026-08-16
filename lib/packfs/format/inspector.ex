@@ -6,6 +6,7 @@ defmodule Packfs.Format.Inspector do
   alias Packfs.Format.Manifest
   alias Packfs.Format.Manifest.Entry
   alias Packfs.Format.PackInfo
+  alias Packfs.Format.ResolvedName
   alias Packfs.Format.Target
   alias Packfs.Format.Validation
   alias Packfs.Format.Verifier
@@ -46,7 +47,7 @@ defmodule Packfs.Format.Inspector do
   end
 
   def inspect(%Target{kind: :workspace, data: workspace}, options) do
-    resolved = Enum.count(workspace.manifest.files, &(not is_nil(&1.virtual_path)))
+    resolved = Enum.count(workspace.manifest.files, &(not is_nil(&1.logical_path)))
 
     summary = %{
       manifest_format: Manifest.format(),
@@ -84,6 +85,8 @@ defmodule Packfs.Format.Inspector do
 
   defp packed_records(records, names, true) do
     Enum.map(records, fn record ->
+      name = resolved_name(Map.get(names, hash_pair(record)))
+
       %{
         index: record.index,
         crc32: record.crc32,
@@ -92,7 +95,9 @@ defmodule Packfs.Format.Inspector do
         offset: record.offset,
         size: record.size,
         md5: record.md5,
-        virtual_path: Map.get(names, hash_pair(record))
+        virtual_path: runtime_path(name),
+        logical_path: logical_path(name),
+        update: update(name)
       }
     end)
   end
@@ -115,12 +120,27 @@ defmodule Packfs.Format.Inspector do
       size: record.size,
       md5: record.md5,
       virtual_path: entry.virtual_path,
+      logical_path: entry.logical_path,
+      update: entry.update,
       stored_path: entry.stored_path,
       extracted_md5: entry.extracted_md5
     }
   end
 
   defp hash_pair(record), do: {record.crc32, record.crc16}
+
+  defp resolved_name(nil), do: nil
+  defp resolved_name(path) when is_binary(path), do: %ResolvedName{path: path, update: nil}
+  defp resolved_name(%ResolvedName{} = name), do: name
+
+  defp runtime_path(%ResolvedName{path: path, update: nil}), do: path
+  defp runtime_path(_name), do: nil
+
+  defp logical_path(%ResolvedName{path: path}), do: path
+  defp logical_path(nil), do: nil
+
+  defp update(%ResolvedName{update: update}), do: update
+  defp update(nil), do: nil
 
   defp add_warnings(validation, warnings) do
     Enum.reduce(warnings, validation, &Validation.warning(&2, &1))

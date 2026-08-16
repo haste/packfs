@@ -123,6 +123,14 @@ defmodule Packfs.Cli.Parser do
         parser: :string,
         multiple: true,
         required: false
+      ],
+      update: [
+        value_name: "NAME:CRC32:CRC16",
+        long: "--update",
+        help: "Resolve retained update files with alternate CRC initial states; repeatable",
+        parser: &parse_update/1,
+        multiple: true,
+        required: false
       ]
     ]
   end
@@ -144,6 +152,38 @@ defmodule Packfs.Cli.Parser do
   defp parse_cipher("raw"), do: {:ok, :raw}
   defp parse_cipher("xor"), do: {:ok, :xor}
   defp parse_cipher(value), do: {:error, "expected auto, raw, or xor; got #{inspect(value)}"}
+
+  defp parse_update(value) do
+    case String.split(value, ":", parts: 3) do
+      [name, crc32, crc16] -> build_update(name, crc32, crc16)
+      _parts -> {:error, "expected NAME:CRC32:CRC16"}
+    end
+  end
+
+  defp build_update(name, crc32, crc16) do
+    with :ok <- validate_update_name(name),
+         {:ok, crc32_init} <- parse_hex(crc32, 0xFFFFFFFF, "CRC32"),
+         {:ok, crc16_init} <- parse_hex(crc16, 0xFFFF, "CRC16") do
+      {:ok, %{name: name, crc32_init: crc32_init, crc16_init: crc16_init}}
+    end
+  end
+
+  defp validate_update_name(name) do
+    if Regex.match?(~r/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, name) do
+      :ok
+    else
+      {:error, "update name must contain only letters, digits, underscores, and hyphens"}
+    end
+  end
+
+  defp parse_hex(value, maximum, label) do
+    normalized = String.replace_prefix(value, "0x", "")
+
+    case Integer.parse(normalized, 16) do
+      {integer, ""} when integer >= 0 and integer <= maximum -> {:ok, integer}
+      _result -> {:error, "#{label} must be a hexadecimal value up to #{maximum}"}
+    end
+  end
 
   defp version do
     :packfs

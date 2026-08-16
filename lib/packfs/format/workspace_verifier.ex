@@ -103,7 +103,24 @@ defmodule Packfs.Format.WorkspaceVerifier do
       record.md5 == entry.indexed_md5,
       "manifest record #{entry.record} indexed MD5 differs from packinfo.bin"
     )
+    |> validate_name_state(entry)
     |> validate_virtual_path(entry, record)
+  end
+
+  defp validate_name_state(validation, %{update: nil, virtual_path: path, logical_path: path}) do
+    validation
+  end
+
+  defp validate_name_state(validation, %{update: update, virtual_path: nil, logical_path: path})
+       when is_binary(update) and update != "" and is_binary(path) do
+    validation
+  end
+
+  defp validate_name_state(validation, entry) do
+    Validation.error(
+      validation,
+      "manifest record #{entry.record} has inconsistent virtual path, logical path, and update"
+    )
   end
 
   defp validate_virtual_path(validation, %{virtual_path: nil}, _record), do: validation

@@ -36,6 +36,7 @@ defmodule Packfs.Cli.Output do
 
     Owl.IO.puts("Unpacked #{files} from #{archives} (#{size}, #{result.cipher_mode}).")
     Owl.IO.puts("Paths: #{result.resolved} resolved, #{result.unresolved} unresolved.")
+    write_updates(result.updates)
     write_messages("warning", result.warnings, :stderr)
   end
 
@@ -161,6 +162,8 @@ defmodule Packfs.Cli.Output do
       "size",
       "md5",
       "virtual path",
+      "logical path",
+      "update",
       "stored path"
     ]
 
@@ -176,6 +179,8 @@ defmodule Packfs.Cli.Output do
       "size" => record.size,
       "md5" => hex(record.md5),
       "virtual path" => record.virtual_path || "-",
+      "logical path" => Map.get(record, :logical_path, record.virtual_path) || "-",
+      "update" => Map.get(record, :update) || "-",
       "stored path" => Map.get(record, :stored_path, "-")
     }
   end
@@ -217,6 +222,14 @@ defmodule Packfs.Cli.Output do
 
   defp quantity(1, singular), do: "1 #{singular}"
   defp quantity(value, singular), do: "#{value} #{singular}s"
+
+  defp write_updates(updates) do
+    updates
+    |> Enum.sort()
+    |> Enum.each(fn {name, count} ->
+      Owl.IO.puts("Update #{name}: #{quantity(count, "file")}.")
+    end)
+  end
 
   defp human_size(bytes) when bytes < 1024, do: "#{bytes} B"
 

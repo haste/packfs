@@ -6,6 +6,7 @@ defmodule Packfs.Format.WorkflowTest do
   alias Packfs.Format.Finfolist
   alias Packfs.Format.PackInfo
   alias Packfs.Format.Repacker
+  alias Packfs.Format.ResolvedName
   alias Packfs.Format.Unpacker
   alias Packfs.Format.Validation
   alias Packfs.Format.Verifier
@@ -95,5 +96,34 @@ defmodule Packfs.Format.WorkflowTest do
 
     assert integrity_record.size == byte_size(rebuilt_archive)
     assert integrity_record.md5 == rebuilt_archive_md5
+  end
+
+  @tag :tmp_dir
+  test "retained update files unpack into a named overlay and rebuild byte-for-byte", %{
+    tmp_dir: temporary
+  } do
+    source = Path.join(temporary, "source")
+    workspace_path = Path.join(temporary, "workspace")
+    rebuilt = Path.join(temporary, "rebuilt")
+    fixture = TestFixture.create_data_set(source, :raw)
+    {hash, path} = Enum.find(fixture.names, fn {_hash, path} -> path == "/data/test/Case.BIN" end)
+
+    names = Map.put(fixture.names, hash, %ResolvedName{path: path, update: "pre-update"})
+
+    assert {:ok, data_set} = DataSet.load(source)
+    assert {:ok, result} = Unpacker.run(data_set, workspace_path, MapSet.new([0]), names)
+    assert result.resolved == 2
+    assert result.updates == %{"pre-update" => 1}
+
+    updated_path =
+      Path.join([workspace_path, "updates", "pre-update", String.trim_leading(path, "/")])
+
+    assert File.read!(updated_path) == fixture.files[path]
+
+    assert {:ok, workspace} = Workspace.load(workspace_path)
+    assert WorkspaceVerifier.verify(workspace, files: true) |> Validation.valid?()
+    assert {:ok, _result} = Repacker.run(workspace, rebuilt)
+
+    assert File.read!(Archive.path(rebuilt, 0)) == File.read!(Archive.path(source, 0))
   end
 end

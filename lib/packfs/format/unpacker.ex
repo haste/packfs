@@ -7,6 +7,7 @@ defmodule Packfs.Format.Unpacker do
   alias Packfs.Format.Manifest
   alias Packfs.Format.Manifest.Entry
   alias Packfs.Format.PackInfo
+  alias Packfs.Format.ResolvedName
   alias Packfs.Format.Unpacker.State
   alias Packfs.Format.UnpackResult
   alias Packfs.Shared.AtomicFile
@@ -100,43 +101,35 @@ defmodule Packfs.Format.Unpacker do
   end
 
   defp unpack_record(record, archive, state) do
-    virtual_path = Map.get(state.names, {record.crc32, record.crc16})
-    stored_path = stored_path(record, virtual_path)
+    paths = extraction_paths(record, Map.get(state.names, {record.crc32, record.crc16}))
 
-    case PathGuard.join(state.output, stored_path) do
-      {:ok, target} -> write_record(target, record, archive, state, stored_path, virtual_path)
+    case PathGuard.join(state.output, paths.stored) do
+      {:ok, target} -> write_record(target, record, archive, state, paths)
       {:error, message} -> {:error, error(message)}
     end
   end
 
-  defp write_record(target, record, archive, state, stored_path, virtual_path) do
+  defp write_record(target, record, archive, state, paths) do
     writer = fn destination ->
       Archive.extract(archive, destination, record, state.cipher_mode)
     end
 
     case AtomicFile.write(target, state.force, writer) do
       {:ok, digest} ->
-        finish_record(record, digest, state, stored_path, virtual_path)
+        finish_record(record, digest, state, paths)
 
       {:error, reason} ->
         {:error, error("record #{record.index}: #{FileOps.format_reason(reason)}")}
     end
   end
 
-  defp finish_record(record, digest, state, stored_path, virtual_path) do
+  defp finish_record(record, digest, state, paths) do
     digest_matches? = digest == record.md5
 
     case enforce_digest(state, record, digest, digest_matches?) do
       {:ok, valid_state} ->
         updated =
-          add_manifest_entry(
-            valid_state,
-            record,
-            digest,
-            digest_matches?,
-            stored_path,
-            virtual_path
-          )
+          add_manifest_entry(valid_state, record, digest, digest_matches?, paths)
 
         {:ok, updated}
 
@@ -157,11 +150,13 @@ defmodule Packfs.Format.Unpacker do
     {:error, error(digest_mismatch(record, digest))}
   end
 
-  defp add_manifest_entry(state, record, digest, digest_matches?, stored_path, virtual_path) do
+  defp add_manifest_entry(state, record, digest, digest_matches?, paths) do
     entry = %Entry{
       record: record.index,
-      stored_path: stored_path,
-      virtual_path: virtual_path,
+      stored_path: paths.stored,
+      virtual_path: paths.virtual,
+      logical_path: paths.logical,
+      update: paths.update,
       extracted_md5: digest,
       indexed_md5: record.md5,
       plaintext_md5_ok: digest_matches?
@@ -203,7 +198,8 @@ defmodule Packfs.Format.Unpacker do
   end
 
   defp result(state, selected) do
-    resolved = Enum.count(state.files, &(not is_nil(&1.virtual_path)))
+    resolved = Enum.count(state.files, &(not is_nil(&1.logical_path)))
+    updates = state.files |> Enum.reject(&is_nil(&1.update)) |> Enum.frequencies_by(& &1.update)
 
     %UnpackResult{
       archives: MapSet.size(selected),
@@ -211,20 +207,42 @@ defmodule Packfs.Format.Unpacker do
       bytes: state.bytes,
       resolved: resolved,
       unresolved: length(state.files) - resolved,
+      updates: updates,
       warnings: Enum.reverse(state.warnings),
       cipher_mode: state.cipher_mode
     }
   end
 
-  defp stored_path(record, nil) do
+  defp extraction_paths(record, nil) do
     hash = "#{hex(record.crc32, 8)}-#{hex(record.crc16, 4)}"
     index = record.index |> to_string() |> String.pad_leading(5, "0")
-    "files/__unknown__/#{hash}-#{index}.bin"
+
+    %{
+      stored: "files/__unknown__/#{hash}-#{index}.bin",
+      virtual: nil,
+      logical: nil,
+      update: nil
+    }
   end
 
-  defp stored_path(_record, virtual_path) do
-    "files/" <> String.trim_leading(virtual_path, "/")
+  defp extraction_paths(record, path) when is_binary(path) do
+    extraction_paths(record, %ResolvedName{path: path, update: nil})
   end
+
+  defp extraction_paths(_record, %ResolvedName{path: path, update: nil}) do
+    %{stored: rooted("files", path), virtual: path, logical: path, update: nil}
+  end
+
+  defp extraction_paths(_record, %ResolvedName{path: path, update: update}) do
+    %{
+      stored: rooted(Path.join("updates", update), path),
+      virtual: nil,
+      logical: path,
+      update: update
+    }
+  end
+
+  defp rooted(root, path), do: Path.join(root, String.trim_leading(path, "/"))
 
   defp digest_mismatch(record, digest) do
     "record #{record.index}: plaintext MD5 mismatch, expected #{hex(record.md5)}, " <>

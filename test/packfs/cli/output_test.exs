@@ -14,6 +14,7 @@ defmodule Packfs.Cli.OutputTest do
       bytes: 545_486_740,
       resolved: 0,
       unresolved: 575,
+      updates: %{},
       warnings: [],
       cipher_mode: :raw
     }
@@ -33,5 +34,20 @@ defmodule Packfs.Cli.OutputTest do
 
     assert capture_io(fn -> Output.repack(result) end) ==
              "Repacked 575 files into 85 archives (520.2 MiB, raw).\n"
+  end
+
+  test "unpack reports named update overlays" do
+    result = %UnpackResult{
+      archives: 1,
+      files: 3,
+      bytes: 100,
+      resolved: 3,
+      unresolved: 0,
+      updates: %{"pre-update" => 2},
+      warnings: [],
+      cipher_mode: :raw
+    }
+
+    assert capture_io(fn -> Output.unpack(result) end) =~ "Update pre-update: 2 files.\n"
   end
 end
