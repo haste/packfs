@@ -1,0 +1,34 @@
+[tools]
+elixir = "1.20.2-otp-29"
+erlang = "29"
+zig = "0.15.2"
+
+[tasks.format]
+description = "Check Elixir formatting"
+run = "mix format --check-formatted"
+
+[tasks.compile]
+description = "Compile with warnings treated as errors"
+run = "mix compile --warnings-as-errors"
+
+[tasks.test]
+description = "Run the test suite"
+run = "mix test"
+
+[tasks.credo]
+description = "Run strict Credo and ExSlop validation"
+run = "mix credo --strict"
+
+[tasks.check]
+description = "Run every local quality gate"
+run = [
+  "mix format --check-formatted",
+  "mix compile --warnings-as-errors",
+  "mix test",
+  "mix credo --strict",
+]
+
+[tasks.release]
+description = "Build the Linux x86-64 Burrito executable"
+env = { MIX_ENV = "prod", BURRITO_TARGET = "linux_x86_64" }
+run = "mix release --overwrite"
