@@ -15,6 +15,7 @@ defmodule Packfs.Format.Unpacker do
   alias Packfs.Shared.PathGuard
 
   @context "unpack"
+  @default_jobs 4
 
   @spec run(DataSet.t(), Path.t(), MapSet.t(non_neg_integer()), map(), keyword()) ::
           {:ok, UnpackResult.t()} | {:error, Error.t()}
@@ -22,9 +23,10 @@ defmodule Packfs.Format.Unpacker do
     expanded_output = Path.expand(output)
 
     with {:ok, cipher_mode} <- DataSet.cipher_mode(data_set, options[:cipher] || :auto),
+         {:ok, jobs} <- jobs(options[:jobs]),
          :ok <- FileOps.prepare_output(expanded_output, options[:force] == true, @context),
          {:ok, state} <-
-           unpack_selected(data_set, expanded_output, selected, names, cipher_mode, options),
+           unpack_selected(data_set, expanded_output, selected, names, cipher_mode, jobs, options),
          :ok <- write_workspace(state, selected) do
       {:ok, result(state, selected)}
     end
@@ -34,16 +36,20 @@ defmodule Packfs.Format.Unpacker do
   ### Helpers
   ###
 
-  defp unpack_selected(data_set, output, selected, names, cipher_mode, options) do
+  defp unpack_selected(data_set, output, selected, names, cipher_mode, jobs, options) do
     state = initial_state(data_set, output, names, cipher_mode, options)
     grouped = PackInfo.records_by_archive(data_set.pack_info)
 
     result =
       selected
       |> Enum.sort()
-      |> Enum.reduce_while(state, fn archive_id, current ->
-        reduce_archive(archive_id, Map.get(grouped, archive_id, []), current)
-      end)
+      |> Enum.map(&{&1, Map.get(grouped, &1, [])})
+      |> Task.async_stream(&unpack_archive_task(&1, state),
+        max_concurrency: jobs,
+        ordered: true,
+        timeout: :infinity
+      )
+      |> Enum.reduce_while(state, &merge_archive/2)
 
     case result do
       {:error, reason} -> {:error, reason}
@@ -51,12 +57,31 @@ defmodule Packfs.Format.Unpacker do
     end
   end
 
-  defp reduce_archive(archive_id, records, state) do
-    case unpack_archive(archive_id, records, state) do
-      {:ok, updated} -> {:cont, updated}
-      {:error, reason} -> {:halt, {:error, reason}}
+  defp unpack_archive_task({archive_id, records}, state) do
+    initial = %{state | files: [], bytes: 0, warnings: []}
+
+    case unpack_archive(archive_id, records, initial) do
+      {:error, reason} ->
+        {:error, reason}
+
+      {:ok, unpacked} ->
+        {:ok, %{files: unpacked.files, bytes: unpacked.bytes, warnings: unpacked.warnings}}
     end
   end
+
+  defp merge_archive({:ok, {:ok, archive}}, state) do
+    updated = %{
+      state
+      | files: archive.files ++ state.files,
+        bytes: state.bytes + archive.bytes,
+        warnings: archive.warnings ++ state.warnings
+    }
+
+    {:cont, updated}
+  end
+
+  defp merge_archive({:ok, {:error, reason}}, _state), do: {:halt, {:error, reason}}
+  defp merge_archive({:exit, reason}, _state), do: exit(reason)
 
   defp initial_state(data_set, output, names, cipher_mode, options) do
     %State{
@@ -73,6 +98,10 @@ defmodule Packfs.Format.Unpacker do
       warnings: []
     }
   end
+
+  defp jobs(nil), do: {:ok, min(System.schedulers_online(), @default_jobs)}
+  defp jobs(value) when is_integer(value) and value > 0, do: {:ok, value}
+  defp jobs(_value), do: {:error, error("jobs must be a positive integer")}
 
   defp unpack_archive(archive_id, records, state) do
     archive_path = Archive.path(state.data_set.root, archive_id)

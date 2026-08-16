@@ -38,6 +38,15 @@ defmodule Packfs.CliTest do
     assert output =~ "missing required arguments: TARGET"
   end
 
+  test "unpack rejects a non-positive worker count" do
+    output =
+      capture_io(:stderr, fn ->
+        assert Packfs.Cli.run(["unpack", "source", "output", "--jobs", "0"]) == 2
+      end)
+
+    assert output =~ "expected a positive integer"
+  end
+
   test "reports the application version" do
     expected = :packfs |> Application.spec(:vsn) |> to_string()
 
