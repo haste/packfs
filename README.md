@@ -71,15 +71,17 @@ workspace/
 ├── files/
 │   ├── data/...
 │   └── __unknown__/<crc32>-<crc16>-<record>.bin
+├── updates/
+│   └── <name>/data/...
 └── original/
     ├── packinfo.bin
     └── finfolist.bin
 ```
 
-Resolved files retain their original directory structure and spelling. Unknown
-hashes use stable filenames and remain extractable and rebuildable. Repacking
-supports replacing and resizing existing files; adding, removing, or renaming
-indexed files is not currently supported.
+Runtime files retain their paths under `files/`. Alternate-CRC records go under
+`updates/<name>/`, and unknown records use stable names under
+`files/__unknown__/`. All remain rebuildable by record index. Repacking supports
+replacing and resizing records, but not adding, removing, or renaming them.
 
 ## Path name sets
 
@@ -93,6 +95,9 @@ The executable bundles self-contained path lists for these games:
 | `gfdm-v7` | 7,431 / 7,541 | 110 | 110 unresolved path hashes |
 | `gfdm-v8` | 7,803 / 8,023 | 220 | 220 unresolved path hashes |
 | `gfdm-xg1` | 8,447 / 8,638 | 191 | 191 unresolved path hashes |
+| `jubeat` | 575 / 575 | 0 | 505 current + 70 pre-update |
+| `jubeat-ripples` | 800 / 800 | 0 | Complete |
+| `jubeat-ripples-append` | 903 / 903 | 0 | Complete |
 
 `all` is the default. A release-specific set is faster and avoids treating a
 cross-release double-hash alias as a valid name. `--name-set` is repeatable,
@@ -102,6 +107,17 @@ unresolved and produce a warning.
 
 Missing names do not prevent unpacking or repacking; those records appear under
 `files/__unknown__`.
+
+The `jubeat` set puts its 70 retained records under `updates/pre-update/`.
+Additional update CRCs use:
+
+```sh
+packfs unpack DATA_ROOT WORKSPACE \
+  --names paths.txt \
+  --update pre-update:d9ad63cb:059a
+```
+
+CRC initials are hexadecimal; repacking preserves the indexed keys.
 
 ## Development
 

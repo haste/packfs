@@ -101,6 +101,8 @@ defmodule Packfs.Format.Manifest do
     with {:ok, record} <- non_negative_integer(map, "record"),
          {:ok, stored_path} <- required_string(map, "stored_path"),
          {:ok, virtual_path} <- optional_string(map, "virtual_path"),
+         {:ok, logical_path} <- logical_path(map, virtual_path),
+         {:ok, update} <- optional_string(map, "update"),
          {:ok, extracted_md5} <- digest(map, "extracted_md5"),
          {:ok, indexed_md5} <- digest(map, "indexed_md5"),
          {:ok, md5_ok} <- boolean(map, "plaintext_md5_ok") do
@@ -109,6 +111,8 @@ defmodule Packfs.Format.Manifest do
          record: record,
          stored_path: stored_path,
          virtual_path: virtual_path,
+         logical_path: logical_path,
+         update: update,
          extracted_md5: extracted_md5,
          indexed_md5: indexed_md5,
          plaintext_md5_ok: md5_ok
@@ -135,6 +139,13 @@ defmodule Packfs.Format.Manifest do
       nil -> {:ok, nil}
       value when is_binary(value) -> {:ok, value}
       value -> {:error, error("#{key} must be a string or null, got #{inspect(value)}")}
+    end
+  end
+
+  defp logical_path(map, virtual_path) do
+    case Map.fetch(map, "logical_path") do
+      {:ok, _value} -> optional_string(map, "logical_path")
+      :error -> {:ok, virtual_path}
     end
   end
 
@@ -165,7 +176,7 @@ defmodule Packfs.Format.Manifest do
     do: {:error, error("source_data_root must be a string or null: #{inspect(value)}")}
 
   defp encode_entry(%Entry{} = entry) do
-    %{
+    encoded = %{
       "record" => entry.record,
       "stored_path" => entry.stored_path,
       "virtual_path" => entry.virtual_path,
@@ -173,6 +184,12 @@ defmodule Packfs.Format.Manifest do
       "indexed_md5" => Base.encode16(entry.indexed_md5, case: :lower),
       "plaintext_md5_ok" => entry.plaintext_md5_ok
     }
+
+    if is_nil(entry.update) do
+      encoded
+    else
+      Map.merge(encoded, %{"logical_path" => entry.logical_path, "update" => entry.update})
+    end
   end
 
   defp error(message), do: %Error{message: message, context: "packfs-manifest.json"}

@@ -1,7 +1,16 @@
 defmodule Packfs.Format.UnpackResult do
   @moduledoc "Summary returned after a successful extraction."
 
-  @enforce_keys [:archives, :files, :bytes, :resolved, :unresolved, :warnings, :cipher_mode]
+  @enforce_keys [
+    :archives,
+    :files,
+    :bytes,
+    :resolved,
+    :unresolved,
+    :updates,
+    :warnings,
+    :cipher_mode
+  ]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
@@ -10,6 +19,7 @@ defmodule Packfs.Format.UnpackResult do
           bytes: non_neg_integer(),
           resolved: non_neg_integer(),
           unresolved: non_neg_integer(),
+          updates: %{String.t() => non_neg_integer()},
           warnings: [String.t()],
           cipher_mode: :raw | :xor
         }

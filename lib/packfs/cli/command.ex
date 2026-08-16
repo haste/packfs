@@ -155,7 +155,13 @@ defmodule Packfs.Cli.Command do
 
   defp resolve_names(data_set, selected, parsed) do
     records = PackInfo.selected_records(data_set.pack_info, selected)
-    Names.resolve(records, parsed.options.name_set, parsed.options.names)
+
+    Names.resolve(
+      records,
+      parsed.options.name_set,
+      parsed.options.names,
+      parsed.options.update
+    )
   end
 
   defp validation_exit(%Validation{errors: []}), do: 0
