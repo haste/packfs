@@ -23,6 +23,33 @@ defmodule Packfs.Format.Cipher do
   ### Helpers
   ###
 
+  # Process eight words at once to reduce recursion and temporary allocations.
+  defp transform_words(
+         <<word0::little-unsigned-32, word1::little-unsigned-32, word2::little-unsigned-32,
+           word3::little-unsigned-32, word4::little-unsigned-32, word5::little-unsigned-32,
+           word6::little-unsigned-32, word7::little-unsigned-32, rest::binary>>,
+         crc16,
+         state0,
+         transformed
+       ) do
+    state1 = next_state(state0, crc16)
+    state2 = next_state(state1, crc16)
+    state3 = next_state(state2, crc16)
+    state4 = next_state(state3, crc16)
+    state5 = next_state(state4, crc16)
+    state6 = next_state(state5, crc16)
+    state7 = next_state(state6, crc16)
+    state8 = next_state(state7, crc16)
+
+    output =
+      <<bxor(word0, state0)::little-unsigned-32, bxor(word1, state1)::little-unsigned-32,
+        bxor(word2, state2)::little-unsigned-32, bxor(word3, state3)::little-unsigned-32,
+        bxor(word4, state4)::little-unsigned-32, bxor(word5, state5)::little-unsigned-32,
+        bxor(word6, state6)::little-unsigned-32, bxor(word7, state7)::little-unsigned-32>>
+
+    transform_words(rest, crc16, state8, [output | transformed])
+  end
+
   defp transform_words(
          <<word::little-unsigned-32, rest::binary>>,
          crc16,
