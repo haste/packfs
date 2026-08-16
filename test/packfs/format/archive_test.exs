@@ -48,6 +48,35 @@ defmodule Packfs.Format.ArchiveTest do
   end
 
   @tag :tmp_dir
+  test "hashes archive padding and stored payload while extracting", %{tmp_dir: temporary} do
+    contents = "decoded payload"
+    padding = "pad"
+    record = %{record(byte_size(contents)) | offset: byte_size(padding)}
+    cipher = Cipher.initial_state(record.crc32, record.crc16)
+    {stored, _cipher} = Cipher.transform(contents, record.crc16, cipher)
+    archive_contents = padding <> stored
+    archive_path = Archive.path(temporary, 0)
+    extracted_path = Path.join(temporary, "extracted.bin")
+
+    File.mkdir_p!(Path.dirname(archive_path))
+    File.write!(archive_path, archive_contents)
+
+    archive = File.open!(archive_path, [:read, :binary, :raw])
+    extracted = File.open!(extracted_path, [:write, :binary, :raw])
+
+    assert {:ok, payload_md5, archive_md5, position} =
+             Archive.extract_and_hash(archive, extracted, record, :xor, Archive.md5(), 0)
+
+    File.close(archive)
+    File.close(extracted)
+
+    assert payload_md5 == :crypto.hash(:md5, contents)
+    assert :crypto.hash_final(archive_md5) == :crypto.hash(:md5, archive_contents)
+    assert position == byte_size(archive_contents)
+    assert File.read!(extracted_path) == contents
+  end
+
+  @tag :tmp_dir
   test "reports short payload reads without writing partial output", %{tmp_dir: temporary} do
     archive_path = Archive.path(temporary, 0)
     extracted_path = Path.join(temporary, "extracted.bin")

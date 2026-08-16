@@ -91,11 +91,13 @@ defmodule Packfs.Format.Unpacker do
       names: names,
       force: options[:force] == true,
       verify: options[:verify] != false,
+      verify_archives: options[:verify_archives] == true,
       allow_bad_md5: options[:allow_bad_md5] == true,
       on_progress: options[:on_progress] || fn _record -> :ok end,
       files: [],
       bytes: 0,
-      warnings: []
+      warnings: [],
+      archive_digest: nil
     }
   end
 
@@ -105,10 +107,14 @@ defmodule Packfs.Format.Unpacker do
 
   defp unpack_archive(archive_id, records, state) do
     archive_path = Archive.path(state.data_set.root, archive_id)
+    initial = begin_archive(state)
 
-    case File.open(archive_path, [:read, :binary, :raw], &unpack_records(records, &1, state)) do
-      {:ok, result} ->
-        result
+    case File.open(archive_path, [:read, :binary, :raw], &unpack_records(records, &1, initial)) do
+      {:ok, {:ok, unpacked}} ->
+        finish_archive(archive_id, unpacked)
+
+      {:ok, {:error, reason}} ->
+        {:error, reason}
 
       {:error, reason} ->
         {:error, error("archive #{archive_id}: #{:file.format_error(reason)}")}
@@ -140,15 +146,61 @@ defmodule Packfs.Format.Unpacker do
 
   defp write_record(target, record, archive, state, paths) do
     writer = fn destination ->
-      Archive.extract(archive, destination, record, state.cipher_mode)
+      extract_record(archive, destination, record, state)
     end
 
     case AtomicFile.write(target, state.force, writer) do
-      {:ok, digest} ->
-        finish_record(record, digest, state, paths)
+      {:ok, {digest, archive_digest}} ->
+        finish_record(record, digest, %{state | archive_digest: archive_digest}, paths)
 
       {:error, reason} ->
         {:error, error("record #{record.index}: #{FileOps.format_reason(reason)}")}
+    end
+  end
+
+  defp extract_record(archive, destination, record, %{archive_digest: nil} = state) do
+    case Archive.extract(archive, destination, record, state.cipher_mode) do
+      {:ok, digest} -> {:ok, {digest, nil}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp extract_record(archive, destination, record, state) do
+    %{md5: archive_md5, position: position} = state.archive_digest
+
+    case Archive.extract_and_hash(
+           archive,
+           destination,
+           record,
+           state.cipher_mode,
+           archive_md5,
+           position
+         ) do
+      {:ok, digest, updated_md5, updated_position} ->
+        {:ok, {digest, %{md5: updated_md5, position: updated_position}}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp begin_archive(%{verify_archives: true} = state) do
+    %{state | archive_digest: %{md5: Archive.md5(), position: 0}}
+  end
+
+  defp begin_archive(state), do: state
+
+  defp finish_archive(_archive_id, %{verify_archives: false} = state), do: {:ok, state}
+
+  defp finish_archive(archive_id, state) do
+    digest = :crypto.hash_final(state.archive_digest.md5)
+    expected = Enum.at(state.data_set.pack_info.archive_md5s, archive_id)
+
+    if digest == expected do
+      {:ok, %{state | archive_digest: nil}}
+    else
+      {:error,
+       error("archive #{archive_id}: MD5 mismatch, expected #{hex(expected)}, got #{hex(digest)}")}
     end
   end
 
