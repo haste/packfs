@@ -4,23 +4,19 @@ defmodule Packfs.Format.Manifest.Entry do
   @enforce_keys [
     :record,
     :stored_path,
-    :virtual_path,
-    :logical_path,
+    :path,
     :update,
     :extracted_md5,
-    :indexed_md5,
-    :plaintext_md5_ok
+    :indexed_md5
   ]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           record: non_neg_integer(),
           stored_path: String.t(),
-          virtual_path: String.t() | nil,
-          logical_path: String.t() | nil,
+          path: String.t() | nil,
           update: String.t() | nil,
           extracted_md5: <<_::128>>,
-          indexed_md5: <<_::128>>,
-          plaintext_md5_ok: boolean()
+          indexed_md5: <<_::128>>
         }
 end

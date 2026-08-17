@@ -209,8 +209,7 @@ defmodule Packfs.Format.Unpacker do
 
     case enforce_digest(state, record, digest, digest_matches?) do
       {:ok, valid_state} ->
-        updated =
-          add_manifest_entry(valid_state, record, digest, digest_matches?, paths)
+        updated = add_manifest_entry(valid_state, record, digest, paths)
 
         {:ok, updated}
 
@@ -231,16 +230,14 @@ defmodule Packfs.Format.Unpacker do
     {:error, error(digest_mismatch(record, digest))}
   end
 
-  defp add_manifest_entry(state, record, digest, digest_matches?, paths) do
+  defp add_manifest_entry(state, record, digest, paths) do
     entry = %Entry{
       record: record.index,
       stored_path: paths.stored,
-      virtual_path: paths.virtual,
-      logical_path: paths.logical,
+      path: paths.path,
       update: paths.update,
       extracted_md5: digest,
-      indexed_md5: record.md5,
-      plaintext_md5_ok: digest_matches?
+      indexed_md5: record.md5
     }
 
     state.on_progress.(record)
@@ -249,9 +246,9 @@ defmodule Packfs.Format.Unpacker do
 
   defp write_workspace(state, selected) do
     manifest = %Manifest{
-      source_data_root: state.data_set.root,
       cipher_mode: state.cipher_mode,
       packs: selected |> Enum.sort(),
+      additions: [],
       files: Enum.reverse(state.files)
     }
 
@@ -279,7 +276,7 @@ defmodule Packfs.Format.Unpacker do
   end
 
   defp result(state, selected) do
-    resolved = Enum.count(state.files, &(not is_nil(&1.logical_path)))
+    resolved = Enum.count(state.files, &(not is_nil(&1.path)))
     updates = state.files |> Enum.reject(&is_nil(&1.update)) |> Enum.frequencies_by(& &1.update)
 
     %UnpackResult{
@@ -300,8 +297,7 @@ defmodule Packfs.Format.Unpacker do
 
     %{
       stored: "files/__unknown__/#{hash}-#{index}.bin",
-      virtual: nil,
-      logical: nil,
+      path: nil,
       update: nil
     }
   end
@@ -311,14 +307,13 @@ defmodule Packfs.Format.Unpacker do
   end
 
   defp extraction_paths(_record, %ResolvedName{path: path, update: nil}) do
-    %{stored: rooted("files", path), virtual: path, logical: path, update: nil}
+    %{stored: rooted("files", path), path: path, update: nil}
   end
 
   defp extraction_paths(_record, %ResolvedName{path: path, update: update}) do
     %{
       stored: rooted(Path.join("updates", update), path),
-      virtual: nil,
-      logical: path,
+      path: path,
       update: update
     }
   end

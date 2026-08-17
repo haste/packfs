@@ -13,10 +13,24 @@ defmodule Packfs.Cli.Command do
   alias Packfs.Format.Validation
   alias Packfs.Format.Verifier
   alias Packfs.Format.Workspace
+  alias Packfs.Format.WorkspaceAdder
+  alias Packfs.Format.WorkspaceStatus
   alias Packfs.Format.WorkspaceVerifier
   alias Packfs.Shared.Selection
 
   @spec run([atom()], ParseResult.t()) :: non_neg_integer()
+  def run([:add], %ParseResult{} = parsed) do
+    case add(parsed) do
+      {:ok, result} ->
+        write_add_result(result, parsed.flags.quiet)
+        0
+
+      {:error, reason} ->
+        Output.error(reason)
+        1
+    end
+  end
+
   def run([:inspect], %ParseResult{} = parsed) do
     case inspect_target(parsed) do
       {:ok, inspection} ->
@@ -65,9 +79,31 @@ defmodule Packfs.Cli.Command do
     end
   end
 
+  def run([:status], %ParseResult{} = parsed) do
+    case workspace_status(parsed) do
+      {:ok, status} ->
+        Output.workspace_status(status, parsed.flags.json)
+        status_exit(status)
+
+      {:error, reason} ->
+        Output.error(reason)
+        1
+    end
+  end
+
   ###
   ### Helpers
   ###
+
+  defp add(parsed) do
+    with {:ok, workspace} <- Workspace.load(parsed.args.workspace) do
+      WorkspaceAdder.run(workspace, parsed.args.source, parsed.options.path,
+        archive_id: parsed.options.pack,
+        update: parsed.options.update,
+        force: parsed.flags.force
+      )
+    end
+  end
 
   defp inspect_target(parsed) do
     with {:ok, target} <- Target.load(parsed.args.target),
@@ -120,7 +156,7 @@ defmodule Packfs.Cli.Command do
          {:ok, selected} <- selection(data_set, parsed.options.pack),
          :ok <- validate_unpack_source(data_set, selected),
          {:ok, resolved} <- resolve_names(data_set, selected, parsed),
-         {:ok, result} <- unpack_data_set(data_set, selected, resolved.paths, parsed) do
+         {:ok, result} <- unpack_data_set(data_set, selected, resolved, parsed) do
       {:ok, %{result | warnings: resolved.warnings ++ result.warnings}}
     end
   end
@@ -134,8 +170,8 @@ defmodule Packfs.Cli.Command do
     end
   end
 
-  defp unpack_data_set(data_set, selected, names, parsed) do
-    Unpacker.run(data_set, parsed.args.output, selected, names,
+  defp unpack_data_set(data_set, selected, resolved, parsed) do
+    Unpacker.run(data_set, parsed.args.output, selected, resolved.paths,
       cipher: parsed.options.cipher,
       verify: not parsed.flags.skip_verify,
       verify_archives: not parsed.flags.skip_verify,
@@ -148,6 +184,12 @@ defmodule Packfs.Cli.Command do
   defp repack(parsed) do
     with {:ok, workspace} <- Workspace.load(parsed.args.workspace) do
       Repacker.run(workspace, parsed.args.output, force: parsed.flags.force)
+    end
+  end
+
+  defp workspace_status(parsed) do
+    with {:ok, workspace} <- Workspace.load(parsed.args.workspace) do
+      WorkspaceStatus.run(workspace)
     end
   end
 
@@ -169,8 +211,15 @@ defmodule Packfs.Cli.Command do
   defp validation_exit(%Validation{errors: []}), do: 0
   defp validation_exit(%Validation{}), do: 1
 
+  defp status_exit(%WorkspaceStatus{errors: []}), do: 0
+  defp status_exit(%WorkspaceStatus{}), do: 1
+
+  defp write_add_result(_result, true), do: :ok
+  defp write_add_result(result, false), do: Output.add(result)
+
   defp write_unpack_result(_result, true), do: :ok
   defp write_unpack_result(result, false), do: Output.unpack(result)
+
   defp write_repack_result(_result, true), do: :ok
   defp write_repack_result(result, false), do: Output.repack(result)
 end

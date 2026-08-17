@@ -5,14 +5,16 @@ defmodule Packfs.Cli.Parser do
   def new do
     Optimus.new!(
       name: "packfs",
-      description: "Inspect, verify, unpack, and repack Konami PackFS archives",
+      description: "Inspect, edit, verify, unpack, and repack Konami PackFS archives",
       version: version(),
       author: "PackFS contributors",
       about: "Manages packed data roots and manifest-based extraction workspaces.",
       allow_unknown_args: false,
       parse_double_dash: true,
       subcommands: [
+        add: add_spec(),
         inspect: inspect_spec(),
+        status: status_spec(),
         verify: verify_spec(),
         unpack: unpack_spec(),
         repack: repack_spec()
@@ -23,6 +25,44 @@ defmodule Packfs.Cli.Parser do
   ###
   ### Helpers
   ###
+
+  defp add_spec do
+    [
+      name: "add",
+      about: "Copy and register a new file in an extraction workspace",
+      args: [
+        workspace: path_argument("WORKSPACE", "Extraction workspace"),
+        source: path_argument("SOURCE", "File to add")
+      ],
+      flags: [
+        force: flag("--force", "Replace an existing destination file"),
+        quiet: flag("--quiet", "Suppress the success summary")
+      ],
+      options: [
+        path: [
+          value_name: "VIRTUAL_PATH",
+          long: "--path",
+          help: "PackFS virtual path for the new file",
+          parser: :string,
+          required: true
+        ],
+        pack: [
+          value_name: "ID",
+          long: "--pack",
+          help: "Destination archive ID (required when the workspace has several archives)",
+          parser: &parse_archive_id/1,
+          required: false
+        ],
+        update: [
+          value_name: "NAME:CRC32:CRC16",
+          long: "--update",
+          help: "Retained-update namespace and CRC initials",
+          parser: &parse_update/1,
+          required: false
+        ]
+      ]
+    ]
+  end
 
   defp inspect_spec do
     [
@@ -84,6 +124,15 @@ defmodule Packfs.Cli.Parser do
     ]
   end
 
+  defp status_spec do
+    [
+      name: "status",
+      about: "Show pending extraction workspace mutations",
+      args: [workspace: path_argument("WORKSPACE", "Extraction workspace")],
+      flags: [json: flag("--json", "Write machine-readable JSON")]
+    ]
+  end
+
   defp path_argument(value_name, help) do
     [value_name: value_name, help: help, required: true, parser: :string]
   end
@@ -124,14 +173,21 @@ defmodule Packfs.Cli.Parser do
         multiple: true,
         required: false
       ],
-      update: [
-        value_name: "NAME:CRC32:CRC16",
-        long: "--update",
-        help: "Resolve retained update files with alternate CRC initial states; repeatable",
-        parser: &parse_update/1,
-        multiple: true,
-        required: false
-      ]
+      update:
+        update_option(
+          "Resolve retained update files with alternate CRC initial states; repeatable"
+        )
+    ]
+  end
+
+  defp update_option(help) do
+    [
+      value_name: "NAME:CRC32:CRC16",
+      long: "--update",
+      help: help,
+      parser: &parse_update/1,
+      multiple: true,
+      required: false
     ]
   end
 
@@ -169,6 +225,13 @@ defmodule Packfs.Cli.Parser do
     case Integer.parse(value) do
       {jobs, ""} when jobs > 0 -> {:ok, jobs}
       _result -> {:error, "expected a positive integer; got #{inspect(value)}"}
+    end
+  end
+
+  defp parse_archive_id(value) do
+    case Integer.parse(value) do
+      {archive_id, ""} when archive_id >= 0 -> {:ok, archive_id}
+      _result -> {:error, "expected a non-negative archive ID; got #{inspect(value)}"}
     end
   end
 

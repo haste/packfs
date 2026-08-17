@@ -39,7 +39,10 @@ defmodule Packfs.Format.Names do
           optional(:sources) => [String.t()]
         }
 
-  @type result :: %{paths: %{hash_pair() => ResolvedName.t()}, warnings: [String.t()]}
+  @type result :: %{
+          paths: %{hash_pair() => ResolvedName.t()},
+          warnings: [String.t()]
+        }
 
   @spec resolve(
           [Packfs.Format.FileRecord.t()],

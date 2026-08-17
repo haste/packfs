@@ -6,12 +6,14 @@ defmodule Packfs.Format.WorkflowTest do
   alias Packfs.Format.Finfolist
   alias Packfs.Format.Manifest
   alias Packfs.Format.PackInfo
+  alias Packfs.Format.Path, as: VirtualPath
   alias Packfs.Format.Repacker
   alias Packfs.Format.ResolvedName
   alias Packfs.Format.Unpacker
   alias Packfs.Format.Validation
   alias Packfs.Format.Verifier
   alias Packfs.Format.Workspace
+  alias Packfs.Format.WorkspaceAdder
   alias Packfs.Format.WorkspaceVerifier
   alias Packfs.TestFixture
 
@@ -161,6 +163,137 @@ defmodule Packfs.Format.WorkflowTest do
 
     assert integrity_record.size == byte_size(rebuilt_archive)
     assert integrity_record.md5 == rebuilt_archive_md5
+  end
+
+  @tag :tmp_dir
+  test "new workspace files are added to the archive and file table", %{tmp_dir: temporary} do
+    source = Path.join(temporary, "source")
+    workspace_path = Path.join(temporary, "workspace")
+    rebuilt = Path.join(temporary, "rebuilt")
+    fixture = TestFixture.create_data_set(source, :xor)
+    added_path = "/data/new/Added.BIN"
+    added_contents = :binary.copy("new payload", 71)
+
+    assert {:ok, data_set} = DataSet.load(source)
+    assert {:ok, _result} = Unpacker.run(data_set, workspace_path, MapSet.new([0]), fixture.names)
+
+    source_path = Path.join(temporary, "added.bin")
+    File.write!(source_path, added_contents)
+
+    assert {:ok, workspace} = Workspace.load(workspace_path)
+    assert {:ok, _result} = WorkspaceAdder.run(workspace, source_path, added_path)
+    assert {:ok, workspace} = Workspace.load(workspace_path)
+    assert {:ok, result} = Repacker.run(workspace, rebuilt)
+    assert result.files == 3
+    assert {:ok, rebuilt_data_set} = DataSet.load(rebuilt)
+
+    assert rebuilt_data_set.pack_info.file_count == 3
+    assert [_, _, _] = rebuilt_data_set.pack_info.records
+
+    keys = Enum.map(rebuilt_data_set.pack_info.records, &{&1.crc32, &1.crc16})
+    assert keys == Enum.sort(keys)
+
+    added_record =
+      Enum.find(rebuilt_data_set.pack_info.records, fn record ->
+        {record.crc32, record.crc16} == VirtualPath.hash(added_path)
+      end)
+
+    assert added_record.archive_id == 0
+    assert added_record.size == byte_size(added_contents)
+    assert added_record.md5 == :crypto.hash(:md5, added_contents)
+
+    validation =
+      Verifier.verify(rebuilt_data_set, MapSet.new([0]),
+        archives: true,
+        files: true,
+        cipher: :xor
+      )
+
+    assert Validation.valid?(validation)
+  end
+
+  @tag :tmp_dir
+  test "new retained-update files use supplied CRC definitions", %{tmp_dir: temporary} do
+    source = Path.join(temporary, "source")
+    workspace_path = Path.join(temporary, "workspace")
+    rebuilt = Path.join(temporary, "rebuilt")
+    fixture = TestFixture.create_data_set(source, :xor)
+    update = %{name: "pre-update", crc32_init: 0xD9AD63CB, crc16_init: 0x059A}
+    added_path = "/data/update/Added.BIN"
+    added_contents = :binary.copy("retained update", 37)
+
+    assert {:ok, data_set} = DataSet.load(source)
+
+    assert {:ok, _result} = Unpacker.run(data_set, workspace_path, MapSet.new([0]), fixture.names)
+
+    source_path = Path.join(temporary, "update-added.bin")
+    File.write!(source_path, added_contents)
+
+    assert {:ok, workspace} = Workspace.load(workspace_path)
+
+    assert {:ok, _result} =
+             WorkspaceAdder.run(workspace, source_path, added_path, update: update)
+
+    assert {:ok, workspace} = Workspace.load(workspace_path)
+    assert {:ok, result} = Repacker.run(workspace, rebuilt)
+    assert result.files == 3
+    assert {:ok, rebuilt_data_set} = DataSet.load(rebuilt)
+
+    expected_hash = VirtualPath.hash(added_path, update.crc32_init, update.crc16_init)
+
+    added_record =
+      Enum.find(rebuilt_data_set.pack_info.records, fn record ->
+        {record.crc32, record.crc16} == expected_hash
+      end)
+
+    assert added_record.size == byte_size(added_contents)
+    assert added_record.md5 == :crypto.hash(:md5, added_contents)
+
+    validation =
+      Verifier.verify(rebuilt_data_set, MapSet.new([0]),
+        archives: true,
+        files: true,
+        cipher: :xor
+      )
+
+    assert Validation.valid?(validation)
+  end
+
+  @tag :tmp_dir
+  test "missing workspace files are removed from the archive and file table", %{
+    tmp_dir: temporary
+  } do
+    source = Path.join(temporary, "source")
+    workspace_path = Path.join(temporary, "workspace")
+    rebuilt = Path.join(temporary, "rebuilt")
+    fixture = TestFixture.create_data_set(source, :raw)
+    deleted_path = "/data/aep/gf_sample.bin"
+
+    assert {:ok, data_set} = DataSet.load(source)
+    assert {:ok, _result} = Unpacker.run(data_set, workspace_path, MapSet.new([0]), fixture.names)
+
+    File.rm!(Path.join([workspace_path, "files", "data", "aep", "gf_sample.bin"]))
+
+    assert {:ok, workspace} = Workspace.load(workspace_path)
+    assert {:ok, result} = Repacker.run(workspace, rebuilt)
+    assert result.files == 1
+    assert {:ok, rebuilt_data_set} = DataSet.load(rebuilt)
+
+    assert rebuilt_data_set.pack_info.file_count == 1
+    assert [_] = rebuilt_data_set.pack_info.records
+
+    refute Enum.any?(rebuilt_data_set.pack_info.records, fn record ->
+             {record.crc32, record.crc16} == VirtualPath.hash(deleted_path)
+           end)
+
+    validation =
+      Verifier.verify(rebuilt_data_set, MapSet.new([0]),
+        archives: true,
+        files: true,
+        cipher: :raw
+      )
+
+    assert Validation.valid?(validation)
   end
 
   @tag :tmp_dir

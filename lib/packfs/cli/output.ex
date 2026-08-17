@@ -2,10 +2,18 @@ defmodule Packfs.Cli.Output do
   @moduledoc "Renders command results for people or JSON consumers."
 
   alias Packfs.Format.Inspection
+  alias Packfs.Format.Manifest.Addition
   alias Packfs.Format.PackInfo
   alias Packfs.Format.RepackResult
   alias Packfs.Format.UnpackResult
   alias Packfs.Format.Validation
+  alias Packfs.Format.WorkspaceStatus
+
+  @spec add(Addition.t()) :: :ok
+  def add(%Addition{} = result) do
+    update = if result.update, do: " (update #{result.update})", else: ""
+    Owl.IO.puts("Added #{result.path} to archive #{result.archive_id}#{update}.")
+  end
 
   @spec inspection(Inspection.t(), boolean()) :: :ok
   def inspection(%Inspection{} = inspection, true) do
@@ -49,6 +57,25 @@ defmodule Packfs.Cli.Output do
     Owl.IO.puts("Repacked #{files} into #{archives} (#{size}, #{result.cipher_mode}).")
   end
 
+  @spec workspace_status(WorkspaceStatus.t(), boolean()) :: :ok
+  def workspace_status(%WorkspaceStatus{} = status, true) do
+    status
+    |> Map.from_struct()
+    |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+    |> write_json()
+  end
+
+  def workspace_status(%WorkspaceStatus{} = status, false) do
+    if WorkspaceStatus.clean?(status) do
+      Owl.IO.puts("Workspace clean.")
+    else
+      write_status_paths("M", status.modified)
+      write_status_paths("D", status.deleted)
+      write_status_paths("A", status.added)
+      write_status_paths("!", status.errors)
+    end
+  end
+
   @spec error(Exception.t() | String.t()) :: :ok
   def error(%_module{} = reason) do
     Owl.IO.puts("error: #{Exception.message(reason)}", :stderr)
@@ -66,6 +93,10 @@ defmodule Packfs.Cli.Output do
   ###
   ### Helpers
   ###
+
+  defp write_status_paths(marker, paths) do
+    Enum.each(paths, &Owl.IO.puts("#{marker} #{&1}"))
+  end
 
   defp inspection_json(inspection) do
     %{

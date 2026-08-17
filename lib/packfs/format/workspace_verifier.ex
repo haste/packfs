@@ -17,14 +17,18 @@ defmodule Packfs.Format.WorkspaceVerifier do
     |> Validation.finish()
   end
 
-  @spec structural(Workspace.t()) :: Validation.t()
-  def structural(%Workspace{} = workspace) do
+  @spec structural(Workspace.t(), keyword()) :: Validation.t()
+  def structural(%Workspace{} = workspace, options \\ []) do
     expected = expected_records(workspace)
 
     %Validation{}
     |> validate_pack_ids(workspace)
     |> validate_record_set(workspace, expected)
-    |> validate_entries(workspace)
+    |> validate_entries(
+      workspace,
+      options[:allow_missing] == true,
+      options[:files] != false
+    )
   end
 
   ###
@@ -69,16 +73,16 @@ defmodule Packfs.Format.WorkspaceVerifier do
     "manifest record set differs from selected archives; missing=#{inspect(missing)}, extra=#{inspect(extra)}"
   end
 
-  defp validate_entries(validation, workspace) do
+  defp validate_entries(validation, workspace, allow_missing, validate_files) do
     {result, _stored_paths} =
       Enum.reduce(workspace.manifest.files, {validation, MapSet.new()}, fn entry, accumulator ->
-        validate_entry(accumulator, workspace, entry)
+        validate_entry(accumulator, workspace, entry, allow_missing, validate_files)
       end)
 
     result
   end
 
-  defp validate_entry({validation, stored_paths}, workspace, entry) do
+  defp validate_entry({validation, stored_paths}, workspace, entry, allow_missing, validate_files) do
     record = Enum.at(workspace.pack_info.records, entry.record)
 
     updated =
@@ -88,7 +92,7 @@ defmodule Packfs.Format.WorkspaceVerifier do
         "duplicate stored path #{inspect(entry.stored_path)}"
       )
       |> validate_record(entry, record)
-      |> validate_stored_file(workspace, entry)
+      |> validate_stored_file(workspace, entry, allow_missing, validate_files)
 
     {updated, MapSet.put(stored_paths, entry.stored_path)}
   end
@@ -104,14 +108,14 @@ defmodule Packfs.Format.WorkspaceVerifier do
       "manifest record #{entry.record} indexed MD5 differs from packinfo.bin"
     )
     |> validate_name_state(entry)
-    |> validate_virtual_path(entry, record)
+    |> validate_path(entry, record)
   end
 
-  defp validate_name_state(validation, %{update: nil, virtual_path: path, logical_path: path}) do
+  defp validate_name_state(validation, %{update: nil}) do
     validation
   end
 
-  defp validate_name_state(validation, %{update: update, virtual_path: nil, logical_path: path})
+  defp validate_name_state(validation, %{update: update, path: path})
        when is_binary(update) and update != "" and is_binary(path) do
     validation
   end
@@ -119,36 +123,44 @@ defmodule Packfs.Format.WorkspaceVerifier do
   defp validate_name_state(validation, entry) do
     Validation.error(
       validation,
-      "manifest record #{entry.record} has inconsistent virtual path, logical path, and update"
+      "manifest record #{entry.record} has an invalid path or update"
     )
   end
 
-  defp validate_virtual_path(validation, %{virtual_path: nil}, _record), do: validation
+  defp validate_path(validation, %{path: nil}, _record), do: validation
 
-  defp validate_virtual_path(validation, entry, record) do
+  defp validate_path(validation, %{update: update}, _record) when not is_nil(update),
+    do: validation
+
+  defp validate_path(validation, entry, record) do
     expected = {record.crc32, record.crc16}
 
     Validation.check(
       validation,
-      VirtualPath.hash(entry.virtual_path) == expected,
-      "manifest record #{entry.record} virtual path does not match its hash"
+      VirtualPath.hash(entry.path) == expected,
+      "manifest record #{entry.record} path does not match its hash"
     )
   end
 
-  defp validate_stored_file(validation, workspace, entry) do
+  defp validate_stored_file(validation, _workspace, _entry, _allow_missing, false), do: validation
+
+  defp validate_stored_file(validation, workspace, entry, allow_missing, true) do
     case PathGuard.join(workspace.root, entry.stored_path) do
-      {:ok, path} -> validate_regular_file(validation, entry, path)
+      {:ok, path} -> validate_regular_file(validation, entry, path, allow_missing)
       {:error, message} -> Validation.error(validation, "record #{entry.record}: #{message}")
     end
   end
 
-  defp validate_regular_file(validation, entry, path) do
+  defp validate_regular_file(validation, entry, path, allow_missing) do
     case File.stat(path) do
       {:ok, %File.Stat{type: :regular}} ->
         validation
 
       {:ok, %File.Stat{type: type}} ->
         Validation.error(validation, "record #{entry.record} stored path is #{type}, not a file")
+
+      {:error, :enoent} when allow_missing ->
+        validation
 
       {:error, reason} ->
         Validation.error(
