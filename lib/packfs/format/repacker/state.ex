@@ -6,7 +6,8 @@ defmodule Packfs.Format.Repacker.State do
     :output,
     :force,
     :on_progress,
-    :entries,
+    :pack_info,
+    :sources,
     :records,
     :archive_md5s,
     :archive_sizes

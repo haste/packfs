@@ -47,7 +47,7 @@ defmodule Packfs.Format.Inspector do
   end
 
   def inspect(%Target{kind: :workspace, data: workspace}, options) do
-    resolved = Enum.count(workspace.manifest.files, &(not is_nil(&1.logical_path)))
+    resolved = Enum.count(workspace.manifest.files, &(not is_nil(&1.path)))
 
     summary = %{
       manifest_format: Manifest.format(),
@@ -119,8 +119,8 @@ defmodule Packfs.Format.Inspector do
       offset: record.offset,
       size: record.size,
       md5: record.md5,
-      virtual_path: entry.virtual_path,
-      logical_path: entry.logical_path,
+      virtual_path: entry_virtual_path(entry),
+      logical_path: entry.path,
       update: entry.update,
       stored_path: entry.stored_path,
       extracted_md5: entry.extracted_md5
@@ -141,6 +141,9 @@ defmodule Packfs.Format.Inspector do
 
   defp update(%ResolvedName{update: update}), do: update
   defp update(nil), do: nil
+
+  defp entry_virtual_path(%Entry{path: path, update: nil}), do: path
+  defp entry_virtual_path(%Entry{}), do: nil
 
   defp add_warnings(validation, warnings) do
     Enum.reduce(warnings, validation, &Validation.warning(&2, &1))

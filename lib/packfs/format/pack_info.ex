@@ -64,18 +64,18 @@ defmodule Packfs.Format.PackInfo do
 
   @spec encode(t()) :: binary()
   def encode(%__MODULE__{} = info) do
+    {prefix, gap, suffix} = raw_layout(info)
+    archive_offset = info.file_table_offset + length(info.records) * @record_size + byte_size(gap)
+
     header =
       <<info.magic::little-unsigned-32, info.file_table_offset::little-unsigned-32,
-        info.archive_table_offset::little-unsigned-32, length(info.records)::little-unsigned-16,
+        archive_offset::little-unsigned-32, length(info.records)::little-unsigned-16,
         length(info.archive_md5s)::little-unsigned-16>>
 
     records = IO.iodata_to_binary(Enum.map(info.records, &encode_record/1))
     archive_md5s = IO.iodata_to_binary(info.archive_md5s)
 
-    info.raw
-    |> replace(0, @header_size, header)
-    |> replace(info.file_table_offset, info.file_count * @record_size, records)
-    |> replace(info.archive_table_offset, info.archive_count * @digest_size, archive_md5s)
+    header <> prefix <> records <> gap <> archive_md5s <> suffix
   end
 
   @spec supported_magic?(non_neg_integer()) :: boolean()
@@ -172,11 +172,35 @@ defmodule Packfs.Format.PackInfo do
       record.size::little-unsigned-32>>
   end
 
-  defp replace(binary, offset, old_size, replacement) do
-    prefix = binary_part(binary, 0, offset)
-    suffix_offset = offset + old_size
-    suffix = binary_part(binary, suffix_offset, byte_size(binary) - suffix_offset)
-    prefix <> replacement <> suffix
+  defp raw_layout(%__MODULE__{raw: raw} = info) do
+    {file_offset, archive_offset, file_count, archive_count} = original_layout(info)
+    file_end = file_offset + file_count * @record_size
+    archive_end = archive_offset + archive_count * @digest_size
+
+    {
+      binary_part(raw, @header_size, file_offset - @header_size),
+      binary_part(raw, file_end, archive_offset - file_end),
+      binary_part(raw, archive_end, byte_size(raw) - archive_end)
+    }
+  end
+
+  defp original_layout(%__MODULE__{raw: raw} = info) do
+    with <<_magic::little-unsigned-32, file_offset::little-unsigned-32,
+           archive_offset::little-unsigned-32, file_count::little-unsigned-16,
+           archive_count::little-unsigned-16, _rest::binary>> <- raw,
+         file_end = file_offset + file_count * @record_size,
+         archive_end = archive_offset + archive_count * @digest_size,
+         true <-
+           file_offset >= @header_size and archive_offset >= file_end and
+             archive_end <= byte_size(raw) do
+      {file_offset, archive_offset, file_count, archive_count}
+    else
+      _invalid -> current_layout(info)
+    end
+  end
+
+  defp current_layout(info) do
+    {info.file_table_offset, info.archive_table_offset, info.file_count, info.archive_count}
   end
 
   defp error(message, offset) do

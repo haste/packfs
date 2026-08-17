@@ -2,7 +2,7 @@
 
 PackFS is a command-line tool for Konami PackFS data roots. It can inspect and
 verify packed data, unpack files into a manifest workspace, and rebuild
-selected archives after files have been replaced or resized.
+selected archives after files have been added, removed, replaced, or resized.
 
 ## Commands
 
@@ -10,6 +10,8 @@ selected archives after files have been replaced or resized.
 packfs inspect TARGET [--records] [--json]
 packfs verify TARGET [--archives] [--files] [--json]
 packfs unpack SOURCE OUTPUT [options]
+packfs add WORKSPACE SOURCE --path VIRTUAL_PATH [options]
+packfs status WORKSPACE [--json]
 packfs repack WORKSPACE OUTPUT [--force] [--quiet]
 ```
 
@@ -80,8 +82,10 @@ workspace/
 
 Runtime files retain their paths under `files/`. Alternate-CRC records go under
 `updates/<name>/`, and unknown records use stable names under
-`files/__unknown__/`. All remain rebuildable by record index. Repacking supports
-replacing and resizing records, but not adding, removing, or renaming them.
+`files/__unknown__/`. Edit or delete tracked files in place; use `packfs add` for
+new files and `packfs status` to review `M`, `D`, and `A` changes. Additions
+infer a sole selected archive or require `--pack ID`; retained-update additions
+require CRC initials supplied as `--update NAME:CRC32:CRC16`.
 
 ## Path name sets
 
