@@ -4,6 +4,9 @@ PackFS is a command-line tool for Konami PackFS data roots. It can inspect and
 verify packed data, unpack files into a manifest workspace, and rebuild
 selected archives after files have been added, removed, replaced, or resized.
 
+See [PackFS format](FORMAT.md) for the binary layouts, path hashes, and
+payload cipher.
+
 ## Commands
 
 ```text
