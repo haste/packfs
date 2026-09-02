@@ -1,0 +1,108 @@
+name: Build executables
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install build tools
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          cache: true
+
+      - name: Restore Mix check cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build/dev
+            _build/test
+          key: ${{ runner.os }}-mix-check-${{ hashFiles('mix.lock', 'mise.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-check-
+
+      - name: Install Hex and Rebar
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      - name: Run checks
+        run: mise run check
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: checks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux_x86_64
+            artifact: packfs-linux-x86_64
+            executable: burrito_out/packfs_linux_x86_64
+          - target: windows_x86_64
+            artifact: packfs-windows-x86_64
+            executable: burrito_out/packfs_windows_x86_64.exe
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Burrito system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes p7zip-full xz-utils
+
+      - name: Install build tools
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          cache: true
+
+      - name: Restore Mix build cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build/prod/lib
+          key: ${{ runner.os }}-mix-prod-${{ hashFiles('mix.lock', 'mise.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-prod-
+
+      - name: Install Hex and Rebar
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+
+      - name: Fetch production dependencies
+        env:
+          MIX_ENV: prod
+        run: mix deps.get --only prod
+
+      - name: Build executable
+        env:
+          BURRITO_TARGET: ${{ matrix.target }}
+          MIX_ENV: prod
+        run: mix release --overwrite
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.executable }}
+          if-no-files-found: error
