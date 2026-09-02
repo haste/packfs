@@ -1,6 +1,6 @@
 [tools]
 elixir = "1.20.2-otp-29"
-erlang = "29"
+erlang = "29.0.5"
 zig = "0.15.2"
 
 [tasks.format]
