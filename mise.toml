@@ -32,3 +32,8 @@ run = [
 description = "Build the Linux x86-64 Burrito executable"
 env = { MIX_ENV = "prod", BURRITO_TARGET = "linux_x86_64" }
 run = "mix release --overwrite"
+
+[tasks.release-windows]
+description = "Build the Windows x86-64 Burrito executable"
+env = { MIX_ENV = "prod", BURRITO_TARGET = "windows_x86_64" }
+run = "mix release --overwrite"
