@@ -1,12 +1,12 @@
 defmodule Packfs.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @release_version "1.0.0"
 
   def project do
     [
       app: :packfs,
-      version: @version,
+      version: version(),
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -34,6 +34,23 @@ defmodule Packfs.MixProject do
       {:credo, "~> 1.7.19", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4.2", only: [:dev, :test], runtime: false}
     ]
+  end
+
+  defp version do
+    System.get_env("PACKFS_VERSION") || local_version()
+  end
+
+  defp local_version do
+    with git when is_binary(git) <- System.find_executable("git"),
+         {revision, 0} <-
+           System.cmd(git, ["rev-parse", "--short=12", "HEAD"],
+             cd: __DIR__,
+             stderr_to_stdout: true
+           ) do
+      "#{@release_version}-dev+git.#{String.trim(revision)}"
+    else
+      _error -> "#{@release_version}-dev"
+    end
   end
 
   defp releases do

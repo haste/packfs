@@ -7,6 +7,14 @@ selected archives after files have been added, removed, replaced, or resized.
 See [PackFS format](FORMAT.md) for the binary layouts, path hashes, and
 payload cipher.
 
+## Download
+
+Download the latest standalone executable from the
+[GitHub Releases page](https://github.com/haste/packfs/releases/latest):
+
+- [Linux x86-64](https://github.com/haste/packfs/releases/latest/download/packfs_linux_x86_64)
+- [Windows x86-64](https://github.com/haste/packfs/releases/latest/download/packfs_windows_x86_64.exe)
+
 ## Commands
 
 ```text
