@@ -28,7 +28,7 @@ defmodule Packfs.MixProject do
 
   defp deps do
     [
-      {:burrito, "~> 1.5.0", only: :prod, runtime: false},
+      {:burrito, "~> 1.6.0", only: :prod, runtime: false},
       {:optimus, "~> 0.6.1"},
       {:owl, "~> 0.13.1"},
       {:credo, "~> 1.7.19", only: [:dev, :test], runtime: false},
