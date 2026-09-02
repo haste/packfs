@@ -42,7 +42,8 @@ defmodule Packfs.MixProject do
         steps: [:assemble, &Burrito.wrap/1],
         burrito: [
           targets: [
-            linux_x86_64: [os: :linux, cpu: :x86_64]
+            linux_x86_64: [os: :linux, cpu: :x86_64],
+            windows_x86_64: [os: :windows, cpu: :x86_64]
           ]
         ]
       ]

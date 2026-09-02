@@ -168,3 +168,11 @@ mise run release
 ```
 
 The executable is written to `burrito_out/packfs_linux_x86_64`.
+
+Build the Windows x86-64 standalone executable with:
+
+```sh
+mise run release-windows
+```
+
+The executable is written to `burrito_out/packfs_windows_x86_64.exe`.
